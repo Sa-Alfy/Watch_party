@@ -141,6 +141,71 @@ dialog h2 { margin: 0 0 12px; }
 .bar { height: 10px; background: var(--panel2); border-radius: 99px; overflow: hidden; }
 #uploadFill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .2s; }
 
+/* Phase A: fullscreen chat overlay */
+#fsChat { position: absolute; left: 12px; bottom: 60px; display: flex; flex-direction: column;
+  gap: 4px; pointer-events: none; z-index: 6; max-width: 55%; }
+.fs-msg { background: #000b; color: #fff; font-size: 14px; padding: 4px 10px; border-radius: 8px;
+  transition: opacity .5s; word-break: break-word; }
+.fs-msg.fade { opacity: 0; }
+#fsChatBar { position: absolute; left: 0; right: 0; bottom: 46px; padding: 6px 12px; z-index: 7;
+  background: #000a; }
+#fsChatInput { width: 100%; background: #fff1; border: 1px solid #fff4; border-radius: 8px;
+  color: #fff; padding: 7px 12px; font: inherit; outline: none; }
+#fsChatInput:focus { border-color: var(--accent); }
+
+/* Phase A: in-stage reaction tray */
+#stageTray { position: absolute; bottom: 46px; left: 0; right: 0; padding: 8px 12px;
+  background: #000c; display: flex; flex-wrap: wrap; gap: 6px; z-index: 6;
+  border-top: 1px solid #fff1; }
+#stageTray button { font-size: 20px; padding: 5px 10px; background: #fff1; border: none; }
+#stageTray .sep { width: 1px; background: #fff3; margin: 2px 4px; }
+#stageTray .nudge { font-size: 13px; }
+
+/* Phase B: heat strip */
+#heatStrip { position: absolute; left: 0; right: 0; bottom: 44px; height: 6px;
+  pointer-events: none; z-index: 5; }
+.heat-seg { position: absolute; top: 0; height: 100%; border-radius: 2px;
+  transition: opacity .3s; cursor: default; }
+
+/* Phase B: per-peer volume slider */
+.peer-vol-wrap { display: flex; align-items: center; padding-left: 4px; }
+.peer-vol { width: 60px; accent-color: var(--accent); }
+
+/* Phase B: subtitle cue styling */
+video::cue { background: rgba(0,0,0,0.75); color: #fff; font-size: 1.1em;
+  padding: 2px 6px; border-radius: 4px; }
+
+/* Phase C: vote card */
+#voteCard { position: absolute; top: 12px; right: 12px; background: #000c; color: #fff;
+  border: 1px solid var(--accent); border-radius: 12px; padding: 10px 14px; z-index: 6;
+  display: flex; flex-direction: column; gap: 6px; min-width: 200px; max-width: 260px; }
+.vote-label { font-weight: 650; font-size: 14px; }
+.vote-info { font-size: 12px; }
+
+/* Phase C: ping dot */
+.ping-dot { position: absolute; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); opacity: .9; transform: translate(-50%, -50%);
+  animation: ping-pulse 2.5s ease-out forwards; pointer-events: none; z-index: 8; }
+.ping-name { position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-size: 11px; background: #000a; color: #fff;
+  padding: 1px 6px; border-radius: 99px; }
+@keyframes ping-pulse {
+  0%   { transform: translate(-50%,-50%) scale(.5); opacity: 0; }
+  10%  { opacity: .9; transform: translate(-50%,-50%) scale(1.2); }
+  70%  { opacity: .9; transform: translate(-50%,-50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%,-50%) scale(1.5); }
+}
+
+/* Phase C: recap dialog */
+.recap-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+  border-bottom: 1px solid var(--line); border-radius: 6px; }
+.recap-row:last-child { border-bottom: none; }
+.recap-row:hover { background: var(--panel2); }
+.recap-time { font-family: ui-monospace, monospace; min-width: 60px; color: var(--accent); }
+
+/* Phase B: wait-mode checkbox label */
+.ctl-label input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+
 /* mobile */
 @media (max-width: 900px) {
   #room { height: auto; min-height: 100%; }

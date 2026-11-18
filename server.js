@@ -13,6 +13,17 @@ const ALLOWED_EXT = new Set(['.mp4', '.webm', '.m4v', '.mov', '.mkv']);
 const IDLE_TTL_MS = 2 * 60 * 60 * 1000; // delete empty rooms (and their movie) after 2h
 const REACTIONS = new Set(['❤️', '😂', '😮', '😢', '👏', '🔥', '💀', '🍿', '👀', '🥶']);
 
+// Wait-for-everyone: how long a user must be buffering before triggering auto-pause
+// Override with WAIT_MS env var (for fast tests)
+const WAIT_BUFFER_MS = Number(process.env.WAIT_MS) || 1500;
+
+// Vote config
+const VOTE_DURATION_MS = 15000;
+const VOTE_COOLDOWN_MS = 30000;
+
+// Heat: 10-second buckets
+const HEAT_BUCKET_SIZE = 10;
+
 // Rooms live in memory, so any leftover files from a previous run are orphans.
 fs.rmSync(UPLOAD_DIR, { recursive: true, force: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -45,6 +56,14 @@ function newRoom() {
     chat: [],
     upload: null,
     countdown: null,
+    // Phase B
+    waitMode: false,
+    waitTimer: null,          // timer to trigger auto-pause when someone buffers
+    resumeCountdown: null,    // countdown interval for resume after all clear
+    // Phase C
+    vote: null,               // { id, kind, by, yes: Set, endsAt, timer, cooldownUntil }
+    heat: {},                 // { [bucketIndex]: { n, e: { emoji: count } } }
+    lastPing: new Map(),      // socketId -> timestamp for rate-limiting
   };
   rooms.set(id, room);
   return room;
@@ -53,7 +72,7 @@ function newRoom() {
 const position = (r) => (r.state.playing ? r.state.time + (Date.now() - r.state.updatedAt) / 1000 : r.state.time);
 const setState = (r, playing, time) => { r.state = { playing, time, updatedAt: Date.now() }; };
 const publicUsers = (r) => [...r.users.entries()].map(([id, u]) => ({
-  id, name: u.name, isHost: u.isHost, inVoice: u.inVoice, muted: u.muted,
+  id, name: u.name, isHost: u.isHost, inVoice: u.inVoice, muted: u.muted, buffering: !!u.buffering,
 }));
 const publicMovie = (r) => (r.movie ? { kind: r.movie.kind, name: r.movie.name, size: r.movie.size, url: r.movie.url } : null);
 const cleanName = (n) => String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 24) || 'Guest';
@@ -78,15 +97,147 @@ function removeMovieFile(r) {
 
 function resetPlayback(r) {
   cancelCountdown(r);
+  cancelWaitResume(r);
+  clearBufferingTimer(r);
   setState(r, false, 0);
   io.to(r.id).emit('state', { playing: false, time: 0, action: 'reset' });
 }
 
 function destroyRoom(r) {
   cancelCountdown(r);
+  cancelWaitResume(r);
+  clearBufferingTimer(r);
   removeMovieFile(r);
   fs.rm(path.join(UPLOAD_DIR, `${r.id}.part`), { force: true }, () => {});
   rooms.delete(r.id);
+}
+
+/* ---------- Phase B: wait-mode helpers ---------- */
+
+function anyBuffering(r) {
+  for (const u of r.users.values()) {
+    if (u.buffering) return true;
+  }
+  return false;
+}
+
+function bufferingNames(r) {
+  const names = [];
+  for (const u of r.users.values()) {
+    if (u.buffering) names.push(u.name);
+  }
+  return names;
+}
+
+function clearBufferingTimer(r) {
+  if (r.waitTimer) {
+    clearTimeout(r.waitTimer);
+    r.waitTimer = null;
+  }
+}
+
+function cancelWaitResume(r) {
+  if (r.resumeCountdown) {
+    clearInterval(r.resumeCountdown);
+    r.resumeCountdown = null;
+    io.to(r.id).emit('countdown', { n: -1 });
+  }
+}
+
+function checkWaitMode(r) {
+  if (!r.waitMode || !r.movie) return;
+
+  if (!r.state.playing) {
+    // Already paused — if nobody is buffering anymore, start resume countdown
+    if (!anyBuffering(r) && !r.resumeCountdown && !r.countdown) {
+      startResumeCountdown(r);
+    }
+    return;
+  }
+
+  // Playing: if someone started buffering, arm the timer
+  if (anyBuffering(r)) {
+    if (!r.waitTimer) {
+      r.waitTimer = setTimeout(() => {
+        r.waitTimer = null;
+        // Re-check: still buffering?
+        if (!r.waitMode || !r.state.playing || !anyBuffering(r)) return;
+        const names = bufferingNames(r);
+        const t = position(r);
+        setState(r, false, t);
+        cancelCountdown(r);
+        io.to(r.id).emit('state', { playing: false, time: t, by: 'Auto', action: 'auto-pause' });
+        sys(r, `⏸ Paused: ${names.join(', ')} is buffering`);
+      }, WAIT_BUFFER_MS);
+    }
+  } else {
+    clearBufferingTimer(r);
+  }
+}
+
+function startResumeCountdown(r) {
+  if (r.resumeCountdown) return;
+  const t = position(r);
+  let n = 3;
+  io.to(r.id).emit('countdown', { n });
+  r.resumeCountdown = setInterval(() => {
+    // Cancel if someone started buffering again
+    if (anyBuffering(r)) {
+      cancelWaitResume(r);
+      return;
+    }
+    n -= 1;
+    if (n > 0) return io.to(r.id).emit('countdown', { n });
+    clearInterval(r.resumeCountdown);
+    r.resumeCountdown = null;
+    setState(r, true, t);
+    io.to(r.id).emit('countdown', { n: 0 });
+    io.to(r.id).emit('state', { playing: true, time: t, by: 'Auto', action: 'play' });
+  }, 1000);
+}
+
+/* ---------- Phase C: vote helpers ---------- */
+
+function publicVote(v) {
+  if (!v) return null;
+  return {
+    id: v.id,
+    kind: v.kind,
+    by: v.by,
+    yes: v.yes.size,
+    needed: v.needed,
+    endsAt: v.endsAt,
+    status: v.status,
+  };
+}
+
+function resolveVote(r, passed) {
+  const v = r.vote;
+  if (!v) return;
+  clearTimeout(v.timer);
+  v.status = passed ? 'passed' : 'expired';
+  io.to(r.id).emit('vote', publicVote(v));
+
+  if (passed) {
+    if (v.kind === 'rewind') {
+      const t = Math.max(0, position(r) - 10);
+      setState(r, r.state.playing, t);
+      io.to(r.id).emit('state', { playing: r.state.playing, time: t, by: 'Vote', action: 'seek' });
+      sys(r, `⏪ Vote passed: rewound 10s`);
+    } else if (v.kind === 'pause') {
+      const t = position(r);
+      setState(r, false, t);
+      cancelCountdown(r);
+      cancelWaitResume(r);
+      io.to(r.id).emit('state', { playing: false, time: t, by: 'Vote', action: 'pause' });
+      sys(r, `⏸ Vote passed: paused`);
+    }
+  }
+
+  r.vote = { ...v, cooldownUntil: Date.now() + VOTE_COOLDOWN_MS, timer: null };
+  setTimeout(() => {
+    if (r.vote && r.vote.id === v.id) r.vote = null;
+  }, VOTE_COOLDOWN_MS);
 }
 
 /* ---------- HTTP ---------- */
@@ -158,6 +309,7 @@ app.post('/api/rooms/:id/upload', express.raw({ type: '*/*', limit: '16mb' }), (
   removeMovieFile(room);
   room.movie = { kind: 'upload', name, size: total, url: `/media/${file}`, file };
   room.upload = null;
+  room.heat = {};
   resetPlayback(room);
   io.to(room.id).emit('upload', null);
   io.to(room.id).emit('movie', publicMovie(room));
@@ -195,7 +347,7 @@ io.on('connection', (socket) => {
     room = r;
     const host = !!(p.hostToken && p.hostToken === r.hostToken);
     const name = cleanName(p.name);
-    r.users.set(socket.id, { name, isHost: host, inVoice: false, muted: false });
+    r.users.set(socket.id, { name, isHost: host, inVoice: false, muted: false, buffering: false });
     r.lastActive = Date.now();
     socket.join(r.id);
     sys(r, `${name} joined`);
@@ -210,6 +362,9 @@ io.on('connection', (socket) => {
         controlMode: r.controlMode,
         chat: r.chat,
         upload: r.upload,
+        waitMode: r.waitMode,
+        vote: publicVote(r.vote),
+        heat: r.heat,
       },
     });
   });
@@ -218,6 +373,8 @@ io.on('connection', (socket) => {
   socket.on('control', (p) => {
     if (!room || !room.movie || !canControl() || !p) return;
     cancelCountdown(room);
+    cancelWaitResume(room);
+    clearBufferingTimer(room);
     const t = Number.isFinite(p.time) ? Math.max(0, p.time) : position(room);
     if (p.action === 'play') setState(room, true, t);
     else if (p.action === 'pause') setState(room, false, t);
@@ -225,6 +382,8 @@ io.on('connection', (socket) => {
     else return;
     room.lastActive = Date.now();
     io.to(room.id).emit('state', { playing: room.state.playing, time: t, by: me().name, action: p.action });
+    // If we just started playing in wait mode, re-arm the buffering watcher
+    if (room.state.playing) checkWaitMode(room);
   });
 
   socket.on('countdown', () => {
@@ -253,6 +412,7 @@ io.on('connection', (socket) => {
     if (!/^https?:$/.test(u.protocol)) return;
     removeMovieFile(room);
     room.movie = { kind: 'url', name: decodeURIComponent(u.pathname.split('/').pop() || u.hostname).slice(0, 120), size: 0, url: u.href, file: null };
+    room.heat = {};
     resetPlayback(room);
     io.to(room.id).emit('movie', publicMovie(room));
     sys(room, `🎬 Movie set from a link`);
@@ -262,6 +422,7 @@ io.on('connection', (socket) => {
     if (!room || !isHost() || !p) return;
     removeMovieFile(room);
     room.movie = { kind: 'local', name: String(p.name || 'movie').slice(0, 200), size: Number(p.size) || 0, url: null, file: null };
+    room.heat = {};
     resetPlayback(room);
     io.to(room.id).emit('movie', publicMovie(room));
     sys(room, `🎬 Everyone: pick "${room.movie.name}" from your own device`);
@@ -272,6 +433,29 @@ io.on('connection', (socket) => {
     room.controlMode = mode;
     io.to(room.id).emit('control-mode', mode);
     sys(room, mode === 'all' ? 'Everyone can now control playback' : 'Only the host controls playback');
+  });
+
+  /* Phase B: wait-mode */
+  socket.on('wait-mode', (val) => {
+    if (!room || !isHost()) return;
+    room.waitMode = !!val;
+    io.to(room.id).emit('wait-mode', room.waitMode);
+    sys(room, room.waitMode ? '⏳ "Wait for everyone" is ON' : '▶ "Wait for everyone" is OFF');
+    if (!room.waitMode) {
+      clearBufferingTimer(room);
+      cancelWaitResume(room);
+    }
+  });
+
+  /* Phase B: buffering flag */
+  socket.on('buffering', (val) => {
+    const u = me();
+    if (!room || !u) return;
+    const b = !!val;
+    if (u.buffering === b) return; // no change
+    u.buffering = b;
+    io.to(room.id).emit('users', publicUsers(room));
+    checkWaitMode(room);
   });
 
   /* fun stuff */
@@ -293,12 +477,77 @@ io.on('connection', (socket) => {
     const now = Date.now();
     if (now - lastReact < 80) return;
     lastReact = now;
-    io.to(room.id).emit('reaction', { emoji, name: me().name });
+    // Phase C: heat strip
+    const movieTime = position(room);
+    const bucketIdx = Math.floor(movieTime / HEAT_BUCKET_SIZE);
+    if (!room.heat[bucketIdx]) room.heat[bucketIdx] = { n: 0, e: {} };
+    room.heat[bucketIdx].n += 1;
+    room.heat[bucketIdx].e[emoji] = (room.heat[bucketIdx].e[emoji] || 0) + 1;
+
+    io.to(room.id).emit('reaction', { emoji, name: me().name, t: movieTime });
   });
 
   socket.on('nudge', (kind) => {
     if (!room || !['pause', 'brb'].includes(kind)) return;
     io.to(room.id).emit('nudge', { kind, name: me().name });
+  });
+
+  /* Phase C: votes */
+  socket.on('vote-start', (p) => {
+    const u = me();
+    if (!room || !u || !p) return;
+    if (!['rewind', 'pause'].includes(p.kind)) return;
+    const now = Date.now();
+    // Cooldown check
+    if (room.vote && room.vote.cooldownUntil && now < room.vote.cooldownUntil) return;
+    if (room.vote && room.vote.status === 'open') return;
+
+    const id = crypto.randomBytes(4).toString('hex');
+    const needed = Math.ceil((room.users.size) / 2);
+    const yesSet = new Set([socket.id]);
+    const endsAt = now + VOTE_DURATION_MS;
+
+    const vote = {
+      id, kind: p.kind, by: u.name,
+      yes: yesSet, needed, endsAt,
+      status: 'open', cooldownUntil: null, timer: null,
+    };
+    room.vote = vote;
+
+    io.to(room.id).emit('vote', publicVote(vote));
+    sys(room, `🗳 ${u.name} started a vote: ${p.kind === 'rewind' ? 'rewind 10s' : 'pause'}`);
+
+    vote.timer = setTimeout(() => {
+      if (room.vote && room.vote.id === id && room.vote.status === 'open') {
+        resolveVote(room, false);
+      }
+    }, VOTE_DURATION_MS);
+
+    // Proposer already voted yes; check if immediately passes (1-person room)
+    if (yesSet.size >= needed) resolveVote(room, true);
+  });
+
+  socket.on('vote-yes', () => {
+    if (!room || !room.vote || room.vote.status !== 'open') return;
+    room.vote.yes.add(socket.id);
+    io.to(room.id).emit('vote', publicVote(room.vote));
+    if (room.vote.yes.size >= room.vote.needed) {
+      resolveVote(room, true);
+    }
+  });
+
+  /* Phase C: ping (point-at-screen) */
+  socket.on('ping', (p) => {
+    const u = me();
+    if (!room || !u || !p) return;
+    const now = Date.now();
+    const last = room.lastPing.get(socket.id) || 0;
+    if (now - last < 250) return; // 4/s rate limit
+    room.lastPing.set(socket.id, now);
+    const x = Number(p.x);
+    const y = Number(p.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return;
+    io.to(room.id).emit('ping', { x, y, name: u.name });
   });
 
   /* voice (WebRTC mesh; the server only relays signalling) */
@@ -333,6 +582,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     const u = me();
     room.users.delete(socket.id);
+    room.lastPing.delete(socket.id);
     room.lastActive = Date.now();
     if (u) sys(room, `${u.name} left`);
     if (u && u.isHost && room.upload) {
@@ -342,8 +592,16 @@ io.on('connection', (socket) => {
     if (!room.users.size && room.state.playing) {
       setState(room, false, position(room));
       cancelCountdown(room);
+      cancelWaitResume(room);
+      clearBufferingTimer(room);
+    }
+    // Clear vote votes from disconnected user
+    if (room.vote && room.vote.status === 'open') {
+      room.vote.yes.delete(socket.id);
     }
     io.to(room.id).emit('users', publicUsers(room));
+    // Re-check wait mode: maybe only buffering user left
+    checkWaitMode(room);
   });
 });
 

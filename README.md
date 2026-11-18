@@ -1,6 +1,6 @@
 # Watch Together 🍿🎬
 
-Watch Together is a lightweight watch-party web application where a host uploads or links a video, and everyone watches together in real-time sync with WebRTC voice chat, live text chat, floating emojis, and flying comments.
+Watch Together is a lightweight watch-party web application where a host uploads or links a video, and everyone watches together in real-time sync with WebRTC voice chat, live text chat, floating emojis, flying comments, interactive votes, subtitle support, and point-at-screen laser pings.
 
 Built with **Node 18+**, **Express 4**, **Socket.IO 4**, and **vanilla JavaScript** with zero build steps or frontend frameworks.
 
@@ -8,16 +8,43 @@ Built with **Node 18+**, **Express 4**, **Socket.IO 4**, and **vanilla JavaScrip
 
 ## Features
 
+### Playback & Video Modes
 - **Authoritative Real-Time Sync**: Server-authoritative playback engine with adaptive drift correction (playbackRate micro-adjustments and seeking).
-- **Chunked Resumable Uploads**: 4MB chunked upload pipeline with upload progress and resume support.
+- **Chunked Resumable Uploads**: 4MB chunked upload pipeline with live progress, MB/s tracking, and automatic retry with exponential backoff.
 - **Three Movie Modes**:
   1. **Upload**: Stream an MP4/WebM video file directly from the host's machine.
   2. **Local File**: Zero-bandwidth mode where each participant selects their local copy of the same video file while the room synchronizes playback.
-  3. **Direct Link**: Stream video directly from a public URL.
-- **WebRTC Voice Chat**: Peer-to-peer mesh audio voice chat with speaking indicator rings and mic mute toggles.
-- **Chat & Flying Screen Comments**: Live text chat with an option to fly comments across the video screen.
-- **Live Reactions & Nudges**: Whitelisted emoji floaters and quick nudge alerts ("✋ Wait, pause!", "🚽 BRB").
-- **Host Permission Controls**: Configurable playback permissions (`Host only` vs `Everyone`).
+  3. **Direct Link**: Stream video directly from any public URL.
+
+### Viewer Quality & Buffering (Phase B)
+- **Buffering Indicators**: Visual `⏳` badge in the participant list when a viewer's video is buffering for >1 second.
+- **Host-Only "Wait for Everyone" Mode**: When enabled, the room auto-pauses (`by: Auto`) if any participant buffers continuously for >1.5 seconds. Once all participants have buffered, playback automatically resumes with a 3-2-1 countdown.
+- **Local Subtitles (`CC`)**: Load `.srt` or `.vtt` subtitle files entirely in-browser (converted to WebVTT with BOM stripping, CRLF normalization, timestamp formatting, and automatic UTF-8 / Windows-1252 character fallback). Shift timing dynamically by `+/-0.5s` using keyboard shortcuts.
+- **Per-Person Voice Volume**: Dedicated volume slider next to each voice chat participant in the user list; levels persist seamlessly across member updates.
+
+### Fullscreen & Immersion (Phase A)
+- **In-Stage Reaction & Vote Tray**: Floating emoji and vote drawer located directly inside the video stage (`😀` button in controls) so reactions and votes remain fully accessible in fullscreen mode.
+- **Fullscreen Chat Overlay**: Last 4 chat messages appear in the bottom-left of the video stage and gracefully fade out after 6 seconds.
+- **Quick Fullscreen Chat Bar**: Press `Enter` while in fullscreen to pop up an in-stage chat prompt; type and press `Enter` to send, or `Esc` to dismiss.
+
+### Interactivity & Engagement (Phase C)
+- **Room Democratic Voting**: Any participant can initiate a vote (`⏪ Rewind 10s` or `⏸ Pause`). Votes run for 15 seconds, require a `>50%` majority, and carry a 30-second cooldown upon completion.
+- **Reaction Heat Strip & Recap**: 10-second reaction buckets plotted dynamically along a heat strip above the progress bar. A "Recap" dialog surfaces the top 5 most reacted scenes (with click-to-seek support for hosts) and auto-opens when the movie ends.
+- **Point-at-Screen Laser Pointer (`📍`)**: Click anywhere on the video stage to broadcast an animated, pulsing ping dot showing your name for 2.5 seconds (rate-limited to 4 pings/sec).
+
+---
+
+## Keyboard Shortcuts
+
+| Key | Action |
+|---|---|
+| `Space` | Toggle Play / Pause |
+| `←` / `→` | Seek backward / forward 10 seconds |
+| `F` | Toggle Fullscreen |
+| `M` | Toggle Mute |
+| `,` / `.` | Shift subtitle timing by `-0.5s` / `+0.5s` |
+| `Enter` | Open in-stage chat bar (when in fullscreen) |
+| `Esc` | Close in-stage chat bar |
 
 ---
 
@@ -95,9 +122,22 @@ ffmpeg -i in.mkv -c:v libx264 -crf 23 -preset veryfast -vf scale=-2:720 -c:a aac
 |---|---|---|
 | `PORT` | `3000` | Port the HTTP and Socket.IO server listens on |
 | `MAX_UPLOAD_GB` | `8` | Maximum video upload size in gigabytes |
+| `WAIT_MS` | `1500` | Milliseconds a client must buffer continuously before triggering auto-pause in "Wait for all" mode |
 | `TURN_URL` | _None_ | Optional TURN server URLs (comma-separated, e.g. `turn:turn.example.com:3478`) |
 | `TURN_USER` | _None_ | Username for TURN server authentication |
 | `TURN_PASS` | _None_ | Password/credential for TURN server authentication |
+
+---
+
+## Testing
+
+```bash
+# Run server & socket protocol smoke test suite (Parts 1-6)
+npm test
+
+# Run Playwright browser end-to-end tests (Tests 1-6)
+node test/e2e.mjs
+```
 
 ---
 
