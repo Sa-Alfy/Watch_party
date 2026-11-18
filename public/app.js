@@ -313,7 +313,12 @@
     }
   }
 
-  video.addEventListener('playing', clearBufferingState);
+  const onPlayingState = () => {
+    clearBufferingState();
+    stage.classList.remove('paused');
+    tapSync.hidden = true;
+  };
+  video.addEventListener('playing', onPlayingState);
   video.addEventListener('canplay', clearBufferingState);
 
   /* ---------- Phase B: Subtitles ---------- */
@@ -772,13 +777,36 @@
     video.playbackRate = 1;
 
     if (srv.playing) {
+      if (!video.paused) {
+        tapSync.hidden = true;
+        return;
+      }
       const p = video.play();
       if (p !== undefined) {
-        p.then(() => { tapSync.hidden = true; })
-         .catch(() => { tapSync.hidden = false; });
+        p.then(() => {
+          tapSync.hidden = true;
+        }).catch((err) => {
+          if (!video.paused) {
+            tapSync.hidden = true;
+            return;
+          }
+          if (err && err.name === 'NotAllowedError' && !video.muted) {
+            video.muted = true;
+            updateMuteIcon();
+            video.play().then(() => {
+              tapSync.hidden = true;
+              showToast('Audio muted by browser policy. Tap unmute.');
+            }).catch(() => {
+              tapSync.hidden = false;
+            });
+            return;
+          }
+          tapSync.hidden = false;
+        });
       }
     } else {
       video.pause();
+      tapSync.hidden = true;
     }
   }
 
@@ -793,6 +821,7 @@
   });
 
   video.addEventListener('timeupdate', () => {
+    if (!video.paused && !tapSync.hidden) tapSync.hidden = true;
     if (!isSeeking && video.duration) {
       seek.value = (video.currentTime / video.duration) * 1000;
       timeNow.textContent = formatTime(video.currentTime);
@@ -832,7 +861,21 @@
     socket.emit('control', { action: 'seek', time: (seek.value / 1000) * video.duration });
   });
 
-  tapSync.addEventListener('click', () => { tapSync.hidden = true; applyHard(); });
+  tapSync.addEventListener('click', async () => {
+    tapSync.hidden = true;
+    try {
+      await video.play();
+      tapSync.hidden = true;
+    } catch {
+      video.muted = true;
+      updateMuteIcon();
+      try {
+        await video.play();
+        tapSync.hidden = true;
+      } catch {}
+    }
+    applyHard();
+  });
 
   function toggleMute() { video.muted = !video.muted; updateMuteIcon(); }
   function updateMuteIcon() { muteVol.textContent = (video.muted || video.volume === 0) ? '🔇' : '🔊'; }
