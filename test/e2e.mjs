@@ -299,7 +299,83 @@ async function run() {
       await pReceiver.context().close();
     }
 
-    console.log('🎉 ALL 6 E2E TESTS PASSED SUCCESSFULLY!');
+    // --- TEST 7: Mobile Viewport UI/UX (375x667) ---
+    {
+      console.log('--- TEST 7: Mobile Viewport UI/UX (375x667) ---');
+      const cr = await fetch(`${BASE}/api/rooms`, { method: 'POST' });
+      const { id: rMobile, hostToken: htMobile } = await cr.json();
+
+      const mobileContext = await browser.newContext({
+        viewport: { width: 375, height: 667 },
+        permissions: ['microphone'],
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1'
+      });
+      const pMobile = await mobileContext.newPage();
+      await pMobile.goto(`${BASE}/r/${rMobile}`);
+      await pMobile.evaluate(({ id, token }) => {
+        localStorage.setItem(`wt_host_${id}`, token);
+      }, { id: rMobile, token: htMobile });
+      await pMobile.reload();
+      await pMobile.fill('#joinName', 'MobileUser');
+      await pMobile.click('#enterBtn');
+      await pMobile.waitForSelector('#room:not(.hidden)', { timeout: 6000 });
+      await sleep(400);
+
+      // Verify no horizontal overflow across entire viewport
+      const hasHorizontalScroll = await pMobile.evaluate(() => {
+        return document.documentElement.scrollWidth > window.innerWidth;
+      });
+      assert.strictEqual(hasHorizontalScroll, false, 'Mobile page must not have horizontal scrolling');
+      console.log('[E2E 7] No horizontal page overflow verified.');
+
+      // Verify menu toggle button is visible and toggles menu-open on headerActions
+      const menuBtnVisible = await pMobile.isVisible('#menuToggle');
+      assert.ok(menuBtnVisible, '#menuToggle must be visible on mobile viewport');
+      await pMobile.click('#menuToggle');
+      const menuOpen = await pMobile.evaluate(() => document.getElementById('headerActions').classList.contains('menu-open'));
+      assert.ok(menuOpen, '#headerActions should have .menu-open when menu button is tapped');
+
+      // Tap elsewhere to dismiss menu
+      await pMobile.click('#movieTitle');
+      const menuDismissed = await pMobile.evaluate(() => !document.getElementById('headerActions').classList.contains('menu-open'));
+      assert.ok(menuDismissed, 'Tapping outside should dismiss the mobile header menu');
+      console.log('[E2E 7] Mobile header menu toggle & dismiss OK.');
+
+      // Verify mobile tabs (Chat vs People)
+      const tabsVisible = await pMobile.isVisible('.mobile-tabs');
+      assert.ok(tabsVisible, '.mobile-tabs should be visible on mobile');
+      
+      const chatPanelVisibleInit = await pMobile.isVisible('#panelChat');
+      const peoplePanelHiddenInit = await pMobile.evaluate(() => document.getElementById('panelPeople').classList.contains('mobile-tab-hidden'));
+      assert.ok(chatPanelVisibleInit, 'Chat panel should be visible by default');
+      assert.ok(peoplePanelHiddenInit, 'People panel should be hidden initially on mobile');
+
+      // Switch to People tab
+      await pMobile.click('#tabPeople');
+      const peoplePanelVisible = await pMobile.evaluate(() => !document.getElementById('panelPeople').classList.contains('mobile-tab-hidden'));
+      const chatPanelHidden = await pMobile.evaluate(() => document.getElementById('panelChat').classList.contains('mobile-tab-hidden'));
+      assert.ok(peoplePanelVisible, 'People panel should become visible when clicking #tabPeople');
+      assert.ok(chatPanelHidden, 'Chat panel should be hidden when switching to #tabPeople');
+
+      // Switch back to Chat tab
+      await pMobile.click('#tabChat');
+      const chatPanelVisibleAfter = await pMobile.evaluate(() => !document.getElementById('panelChat').classList.contains('mobile-tab-hidden'));
+      assert.ok(chatPanelVisibleAfter, 'Chat panel should become visible again after clicking #tabChat');
+      console.log('[E2E 7] Mobile segmented tab navigation (Chat <-> People) OK.');
+
+      // Verify reaction tray
+      const trayExists = await pMobile.evaluate(() => {
+        const tray = document.querySelector('#reactions .reaction-tray');
+        return tray && tray.querySelectorAll('.reaction-btn').length === 10;
+      });
+      assert.ok(trayExists, 'Reaction tray should have all 10 emoji buttons');
+      console.log('[E2E 7] Scrollable reaction tray with 10 emojis OK.');
+
+      console.log('✅ TEST 7 PASSED: Mobile viewport UI/UX verified\n');
+      await mobileContext.close();
+    }
+
+    console.log('🎉 ALL 7 E2E TESTS PASSED SUCCESSFULLY!');
   } finally {
     if (browser) await browser.close();
     cleanup();

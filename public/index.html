@@ -37,7 +37,10 @@
   <div id="room" class="hidden">
     <header class="topbar">
       <div class="brand"><span>🍿</span><span id="movieTitle" class="title">No movie yet</span></div>
-      <div class="actions">
+      <div class="topbar-right">
+        <button id="menuToggle" class="menu-btn" aria-label="Room menu" title="Room options">⚙️</button>
+      </div>
+      <div id="headerActions" class="actions">
         <label class="host-only hidden ctl-label">Controls
           <select id="controlMode">
             <option value="host">Host only</option>
@@ -101,7 +104,13 @@
       </section>
 
       <aside class="side">
-        <section class="panel">
+        <!-- Mobile tab switcher (only visible on mobile/tablet <=900px) -->
+        <div class="mobile-tabs" role="tablist">
+          <button type="button" id="tabChat" class="tab-btn active" role="tab" aria-selected="true">💬 Chat</button>
+          <button type="button" id="tabPeople" class="tab-btn" role="tab" aria-selected="false">👥 People <span id="peopleCountTab" class="tab-badge"></span></button>
+        </div>
+
+        <section id="panelPeople" class="panel panel-people mobile-tab-hidden">
           <h3>In the room <span id="peopleCount" class="muted"></span></h3>
           <ul id="userList"></ul>
           <div class="voice-bar">
@@ -110,7 +119,7 @@
           </div>
         </section>
 
-        <section class="panel chat">
+        <section id="panelChat" class="panel chat panel-chat">
           <h3>Chat</h3>
           <div id="messages"></div>
           <form id="chatForm" autocomplete="off">

@@ -22,6 +22,8 @@
   const changeMovie = $('changeMovie');
   const recapBtn    = $('recapBtn');
   const copyLink    = $('copyLink');
+  const menuToggle  = $('menuToggle');
+  const headerActions = $('headerActions');
 
   // Stage & video
   const stage     = $('stage');
@@ -58,6 +60,11 @@
   // Reactions & users & chat
   const reactions   = $('reactions');
   const peopleCount = $('peopleCount');
+  const peopleCountTab = $('peopleCountTab');
+  const tabChat     = $('tabChat');
+  const tabPeople   = $('tabPeople');
+  const panelChat   = $('panelChat');
+  const panelPeople = $('panelPeople');
   const userList    = $('userList');
   const voiceBtn    = $('voiceBtn');
   const muteBtn     = $('muteBtn');
@@ -220,51 +227,61 @@
 
   function buildReactionButtons(container, includeVoteButtons) {
     container.textContent = '';
+
+    const emojiTray = document.createElement('div');
+    emojiTray.className = 'reaction-tray';
     REACTION_EMOJIS.forEach((em) => {
       const btn = document.createElement('button');
       btn.type = 'button';
+      btn.className = 'reaction-btn';
       btn.textContent = em;
+      btn.setAttribute('aria-label', `React ${em}`);
       btn.addEventListener('click', () => { if (socket) socket.emit('reaction', em); });
-      container.appendChild(btn);
+      emojiTray.appendChild(btn);
     });
+    container.appendChild(emojiTray);
 
-    const sep = document.createElement('div');
-    sep.className = 'sep';
-    container.appendChild(sep);
+    const secondary = document.createElement('div');
+    secondary.className = 'reaction-secondary';
+
+    const nudgeWrap = document.createElement('div');
+    nudgeWrap.className = 'reaction-nudges';
 
     const pauseNudge = document.createElement('button');
     pauseNudge.type = 'button';
     pauseNudge.className = 'nudge';
     pauseNudge.textContent = '✋ Wait, pause!';
     pauseNudge.addEventListener('click', () => { if (socket) socket.emit('nudge', 'pause'); });
-    container.appendChild(pauseNudge);
+    nudgeWrap.appendChild(pauseNudge);
 
     const brbNudge = document.createElement('button');
     brbNudge.type = 'button';
     brbNudge.className = 'nudge';
     brbNudge.textContent = '🚽 BRB';
     brbNudge.addEventListener('click', () => { if (socket) socket.emit('nudge', 'brb'); });
-    container.appendChild(brbNudge);
+    nudgeWrap.appendChild(brbNudge);
+    secondary.appendChild(nudgeWrap);
 
     if (includeVoteButtons) {
-      const sep2 = document.createElement('div');
-      sep2.className = 'sep';
-      container.appendChild(sep2);
+      const voteWrap = document.createElement('div');
+      voteWrap.className = 'reaction-votes';
 
       const voteRewind = document.createElement('button');
       voteRewind.type = 'button';
-      voteRewind.className = 'nudge';
+      voteRewind.className = 'nudge vote-nudge';
       voteRewind.textContent = '⏪ Vote: rewind 10s';
       voteRewind.addEventListener('click', () => { if (socket) socket.emit('vote-start', { kind: 'rewind' }); });
-      container.appendChild(voteRewind);
+      voteWrap.appendChild(voteRewind);
 
       const votePause = document.createElement('button');
       votePause.type = 'button';
-      votePause.className = 'nudge';
+      votePause.className = 'nudge vote-nudge';
       votePause.textContent = '⏸ Vote: pause';
       votePause.addEventListener('click', () => { if (socket) socket.emit('vote-start', { kind: 'pause' }); });
-      container.appendChild(votePause);
+      voteWrap.appendChild(votePause);
+      secondary.appendChild(voteWrap);
     }
+    container.appendChild(secondary);
   }
 
   // Build external reactions bar (without vote buttons duplicated, include them here)
@@ -474,6 +491,7 @@
     currentUsers = users;
     userList.textContent = '';
     peopleCount.textContent = `(${users.length})`;
+    if (peopleCountTab) peopleCountTab.textContent = `(${users.length})`;
 
     users.forEach((u) => {
       const li = document.createElement('li');
@@ -890,7 +908,43 @@
   });
 
   /* ---------- Movie sources & dialog ---------- */
-  changeMovie.addEventListener('click', () => sourceDialog.showModal());
+  /* Mobile menu toggle */
+  if (menuToggle && headerActions) {
+    menuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      headerActions.classList.toggle('menu-open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!headerActions.contains(e.target) && e.target !== menuToggle) {
+        headerActions.classList.remove('menu-open');
+      }
+    });
+  }
+
+  /* Mobile tabs: Chat vs People */
+  if (tabChat && tabPeople && panelChat && panelPeople) {
+    tabChat.addEventListener('click', () => {
+      tabChat.classList.add('active');
+      tabChat.setAttribute('aria-selected', 'true');
+      tabPeople.classList.remove('active');
+      tabPeople.setAttribute('aria-selected', 'false');
+      panelChat.classList.remove('mobile-tab-hidden');
+      panelPeople.classList.add('mobile-tab-hidden');
+    });
+    tabPeople.addEventListener('click', () => {
+      tabPeople.classList.add('active');
+      tabPeople.setAttribute('aria-selected', 'true');
+      tabChat.classList.remove('active');
+      tabChat.setAttribute('aria-selected', 'false');
+      panelPeople.classList.remove('mobile-tab-hidden');
+      panelChat.classList.add('mobile-tab-hidden');
+    });
+  }
+
+  changeMovie.addEventListener('click', () => {
+    if (headerActions) headerActions.classList.remove('menu-open');
+    sourceDialog.showModal();
+  });
   closeDialog.addEventListener('click', () => sourceDialog.close());
 
   copyLink.addEventListener('click', async () => {
