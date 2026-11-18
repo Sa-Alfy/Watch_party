@@ -1,0 +1,21 @@
+{
+  "name": "watch-together",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Invite-link watch party rooms: host uploads a movie, everyone watches in sync with chat, voice and reactions.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}

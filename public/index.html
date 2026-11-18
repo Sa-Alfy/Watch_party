@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Movie Night</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- Landing: create a room -->
+  <main id="landing" class="screen hidden">
+    <div class="card">
+      <div class="logo">🍿</div>
+      <h1>Movie Night</h1>
+      <p class="muted">Make a room, send the link, watch together. Synced video, voice and chat.</p>
+      <input id="landingName" maxlength="24" placeholder="Your name" autocomplete="nickname">
+      <button id="createBtn" class="primary">Create a room</button>
+    </div>
+  </main>
+
+  <!-- Join: someone opened an invite link -->
+  <main id="join" class="screen hidden">
+    <div class="card">
+      <div class="logo">🎬</div>
+      <h1>Room <span id="joinCode" class="code"></span></h1>
+      <p id="joinHint" class="muted">Pick a name and hop in.</p>
+      <input id="joinName" maxlength="24" placeholder="Your name" autocomplete="nickname">
+      <button id="enterBtn" class="primary">Enter room</button>
+      <p id="joinError" class="error"></p>
+    </div>
+  </main>
+
+  <!-- Room -->
+  <div id="room" class="hidden">
+    <header class="topbar">
+      <div class="brand"><span>🍿</span><span id="movieTitle" class="title">No movie yet</span></div>
+      <div class="actions">
+        <label class="host-only hidden ctl-label">Controls
+          <select id="controlMode">
+            <option value="host">Host only</option>
+            <option value="all">Everyone</option>
+          </select>
+        </label>
+        <button id="changeMovie" class="host-only hidden">🎞 Change movie</button>
+        <button id="copyLink">🔗 Copy invite link</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <section class="stage-col">
+        <div id="stage">
+          <video id="video" playsinline preload="auto"></video>
+          <div id="fx"></div>
+          <div id="countdown"></div>
+          <div id="toast"></div>
+
+          <div id="empty">
+            <div id="emptyInner"></div>
+          </div>
+          <button id="tapSync" hidden>▶ Tap to join playback</button>
+
+          <div id="controls" class="locked">
+            <button id="playBtn" title="Play / pause (space)">▶</button>
+            <span id="timeNow" class="time">0:00</span>
+            <input id="seek" type="range" min="0" max="1000" value="0">
+            <span id="timeTotal" class="time">0:00</span>
+            <button id="countBtn" title="Start with a 3-2-1 countdown">⏱</button>
+            <button id="muteVol" title="Mute (m)">🔊</button>
+            <input id="vol" type="range" min="0" max="1" step="0.05" value="1">
+            <button id="fsBtn" title="Fullscreen (f)">⛶</button>
+          </div>
+        </div>
+        <div id="lockNote" class="muted small"></div>
+        <div id="reactions"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel">
+          <h3>In the room <span id="peopleCount" class="muted"></span></h3>
+          <ul id="userList"></ul>
+          <div class="voice-bar">
+            <button id="voiceBtn" class="primary">🎙 Join voice</button>
+            <button id="muteBtn" class="hidden">Mute mic</button>
+          </div>
+        </section>
+
+        <section class="panel chat">
+          <h3>Chat</h3>
+          <div id="messages"></div>
+          <form id="chatForm" autocomplete="off">
+            <input id="chatInput" maxlength="500" placeholder="Say something…">
+            <button type="button" id="flyToggle" title="Also fly across the screen" class="toggle">💬</button>
+            <button type="submit" class="primary">Send</button>
+          </form>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Movie source dialog (host) -->
+  <dialog id="sourceDialog">
+    <h2>Choose the movie</h2>
+
+    <div class="opt">
+      <h4>1 · Upload it</h4>
+      <p class="muted small">Best compatibility: MP4 with H.264 video + AAC audio. Everyone streams it from your computer, so your upload speed matters.</p>
+      <input id="fileInput" type="file" accept="video/*,.mkv" hidden>
+      <button id="pickFile" class="primary">Choose video file…</button>
+      <div id="uploadBox" class="hidden">
+        <div class="bar"><div id="uploadFill"></div></div>
+        <div id="uploadText" class="muted small"></div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <h4>2 · Everyone loads their own copy</h4>
+      <p class="muted small">Zero bandwidth for you. Everyone selects the same file from their own device; the room only keeps playback in sync.</p>
+      <input id="localInput" type="file" accept="video/*,.mkv" hidden>
+      <button id="pickLocal">Choose file for local mode…</button>
+    </div>
+
+    <div class="opt">
+      <h4>3 · Paste a direct video link</h4>
+      <div class="row">
+        <input id="urlInput" placeholder="https://…/movie.mp4">
+        <button id="useUrl">Use link</button>
+      </div>
+    </div>
+
+    <div class="row end"><button id="closeDialog">Close</button></div>
+  </dialog>
+
+  <div id="audioSink" hidden></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
